@@ -1,0 +1,59 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+
+OVERLAY_NAME="mt7981b-openwrt-one-mikrobus-spidev"
+OVERLAY_PATH="/sys/kernel/config/device-tree/overlays/$OVERLAY_NAME"
+DTBO_FILE="/lib/firmware/device-tree/overlays/$OVERLAY_NAME.dtbo"
+
+log() {
+    logger -t dtbo-mikrobus-spidev "$@"
+}
+
+start() {
+    # Mount configfs if not already mounted
+    grep -q /sys/kernel/config /proc/mounts || \
+        mount -t configfs configfs /sys/kernel/config
+
+    [ -d /sys/kernel/config/device-tree/overlays ] || {
+        log "userspace device tree overlay support not found."
+        return 1
+    }
+
+    # Create overlay directory and load the dtbo
+    if [ -f "$DTBO_FILE" ] && [ ! -d "$OVERLAY_PATH" ]; then
+        mkdir -p "$OVERLAY_PATH"
+        cat "$DTBO_FILE" > "$OVERLAY_PATH/dtbo"
+        log "Loaded device tree overlay: $OVERLAY_NAME"
+    fi
+
+    # Enable the overlay
+    if [ -f "$OVERLAY_PATH/status" ]; then
+        echo 1 > "$OVERLAY_PATH/status"
+        log "Enabled device tree overlay: $OVERLAY_NAME"
+    else
+        log "Failed enabling device tree overlay: $OVERLAY_NAME"
+        return 1
+    fi
+}
+
+stop() {
+    # Mount configfs if not already mounted
+    grep -q /sys/kernel/config /proc/mounts || \
+        mount -t configfs configfs /sys/kernel/config
+
+    # Disable the overlay
+    if [ -f "$OVERLAY_PATH/status" ]; then
+        echo 0 > "$OVERLAY_PATH/status"
+        log "Disabled device tree overlay: $OVERLAY_NAME"
+    else
+        log "Failed disabling device tree overlay: $OVERLAY_NAME"
+    fi
+
+    # Remove the overlay
+    if [ -d "$OVERLAY_PATH" ]; then
+        rmdir "$OVERLAY_PATH" 2>/dev/null
+        log "Removed device tree overlay: $OVERLAY_NAME"
+    fi
+}

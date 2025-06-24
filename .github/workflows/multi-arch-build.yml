@@ -1,0 +1,134 @@
+name: Build/Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/Makefile'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: "build ${{ matrix.version }} ${{ matrix.cfg.target }} ${{ matrix.cfg.arch }}"
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - main
+          # - '24.10.2'
+          - '24.10.1'
+          - '24.10.0'
+        cfg:
+          - target_safe: mediatek_filogic
+            target: mediatek/filogic
+            arch: aarch64_cortex-a53
+
+          - target_safe: mediatek_mt7622
+            target: mediatek/mt7622
+            arch: aarch64_cortex-a53
+
+          - target_safe: mediatek_mt7623
+            target: mediatek/mt7623
+            arch: arm_cortex-a7_neon-vfpv4
+
+          - target_safe: rockchip_armv8
+            target: rockchip/armv8
+            arch: aarch64_generic
+
+          - target_safe: starfive_generic
+            target: starfive/generic
+            arch: riscv64_generic
+
+          - target_safe: stm32_stm32mp1
+            target: stm32/stm32mp1
+            arch: arm_cortex-a7_neon-vfpv4
+        exclude:
+          - version: '24.10.0'
+            cfg:
+              arch: riscv64_generic
+
+          - version: '24.10.1'
+            cfg:
+              arch: riscv64_generic
+
+          # Revisit this failure, probably temporary
+          - version: main
+            cfg:
+              target: mediatek/mt7622
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build APK packages ${{ matrix.cfg.arch }}
+        if: ${{ matrix.version == 'main' }}
+        uses: vidplace7/openwrt-gh-action-sdk@specify-TARGET
+        env:
+          ARCH: "${{ matrix.cfg.arch }}-${{ matrix.version }}"
+          TARGET: "${{ matrix.cfg.target }}"
+          FEEDNAME: openwrt_dtbo
+          PRIVATE_KEY: "${{ secrets.WRT_APK_KEY }}"
+
+      - name: Build IPK packages ${{ matrix.cfg.arch }}
+        if: ${{ matrix.version != 'main' }}
+        uses: vidplace7/openwrt-gh-action-sdk@specify-TARGET
+        env:
+          ARCH: "${{ matrix.cfg.arch }}-${{ matrix.version }}"
+          TARGET: "${{ matrix.cfg.target }}"
+          FEEDNAME: openwrt_dtbo
+          KEY_BUILD: "${{ secrets.WRT_IPK_KEY }}"
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: "packages-${{ matrix.version }}-${{ matrix.cfg.target_safe }}-${{ matrix.cfg.arch }}"
+          if-no-files-found: warn
+          path: |
+            bin/packages/${{ matrix.cfg.arch }}/openwrt_dtbo/*.apk
+            bin/packages/${{ matrix.cfg.arch }}/openwrt_dtbo/*.ipk
+
+      - name: Upload target artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: "targets-${{ matrix.version }}-${{ matrix.cfg.target_safe }}-${{ matrix.cfg.arch }}"
+          if-no-files-found: warn
+          path: |
+            bin/targets/${{ matrix.cfg.target }}/packages/kmod-fs-dtbocfg*.apk
+            bin/targets/${{ matrix.cfg.target }}/packages/kmod-fs-dtbocfg*.ipk
+
+  # deploy:
+  #   name: "deploy ${{ matrix.version }}"
+  #   runs-on: ubuntu-24.04
+  #   needs: build
+  #   concurrency:
+  #     # Only run one deploy at a time
+  #     group: publish-builds
+  #     cancel-in-progress: false
+  #   strategy:
+  #     matrix:
+  #       version:
+  #         - main
+  #         # - '24.10.2'
+  #         - '24.10.1'
+  #         - '24.10.0'
+  #   steps:
+  #     - name: "Download artifacts for ${{ matrix.version }}"
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: "${{ matrix.version }}"
+  #         pattern: "${{ matrix.version }}-*"
+  #         merge-multiple: true
+
+  #     - name: "Upload packages for ${{ matrix.version }} to GitHub Pages"
+  #       uses: peaceiris/actions-gh-pages@v4
+  #       with:
+  #         deploy_key: ${{ secrets.WRT_REPO_DEPLOY_KEY }}
+  #         external_repository: vidplace7/openwrt-dtbo-repo
+  #         publish_dir: "${{ matrix.version }}"
+  #         destination_dir: "${{ matrix.version }}"
+  #         user_name: github-actions[bot]
+  #         user_email: github-actions[bot]@users.noreply.github.com
+  #         enable_jekyll: true
